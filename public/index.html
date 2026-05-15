@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bloom Life — Myperfit Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f0; color: #1a1a1a; font-size: 14px; }
+  header { background: #fff; border-bottom: 1px solid #e5e5e0; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 16px; font-weight: 600; }
+  header span { font-size: 12px; color: #888; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #888; margin: 24px 0 12px; }
+  .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .card { background: #fff; border-radius: 10px; padding: 16px; border: 1px solid #e5e5e0; }
+  .metric-label { font-size: 11px; color: #888; margin-bottom: 6px; }
+  .metric-value { font-size: 24px; font-weight: 600; }
+  .metric-sub { font-size: 11px; color: #aaa; margin-top: 4px; }
+  .green { color: #16a34a; } .amber { color: #d97706; } .red { color: #dc2626; } .blue { color: #2563eb; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; font-weight: 600; color: #888; padding: 8px 10px; background: #f9f9f7; border-bottom: 1px solid #e5e5e0; }
+  td { padding: 10px; border-bottom: 1px solid #f0f0ec; }
+  tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 999px; font-weight: 600; }
+  .badge-luna { background: #dcfce7; color: #166534; }
+  .badge-brand { background: #dbeafe; color: #1e40af; }
+  .bar-wrap { background: #f0f0ec; border-radius: 4px; height: 6px; margin-top: 8px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; }
+  .insight { background: #fff; border-radius: 10px; padding: 16px; border: 1px solid #e5e5e0; }
+  .insight-icon { font-size: 20px; margin-bottom: 8px; }
+  .insight-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .insight-text { font-size: 12px; color: #666; line-height: 1.6; }
+  .refresh-btn { background: #1a1a1a; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+  .refresh-btn:hover { background: #333; }
+  .loading { text-align: center; padding: 60px; color: #888; }
+  .error { padding: 20px; background: #fef2f2; color: #dc2626; border-radius: 10px; border: 1px solid #fecaca; }
+  #last-updated { font-size: 11px; color: #aaa; margin-top: 4px; }
+  @media (max-width: 768px) { .grid-5 { grid-template-columns: repeat(2, 1fr); } .grid-3 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🌸 Bloom Life — Dashboard Myperfit</h1>
+    <div id="last-updated">Cargando...</div>
+  </div>
+  <button class="refresh-btn" onclick="loadData()">↻ Actualizar</button>
+</header>
+
+<div class="container">
+  <div id="root"><div class="loading">Cargando datos...</div></div>
+</div>
+
+<script>
+const pct = n => n == null ? '—' : Number(n).toFixed(1) + '%';
+const money = n => n == null ? '—' : '$ ' + Math.round(n).toLocaleString('es-AR');
+const fmt = n => n == null ? '—' : Number(n).toLocaleString('es-AR');
+const gc = (v, g, w) => v >= g ? 'green' : v >= w ? 'amber' : 'red';
+const oR = c => c.openRate || c.openedP || c.metrics?.openedP || 0;
+const cR = c => c.clickRate || c.clickedP || c.metrics?.clickedP || 0;
+const bR = c => c.bounceRate || c.bouncedP || c.metrics?.bouncedP || 0;
+const rv = c => c.revenue || c.conversionsAmount || c.metrics?.conversionsAmount || 0;
+const sn = c => c.sentCount || c.sent || c.metrics?.sent || c.recipients || 0;
+
+let trendChart = null;
+
+async function loadData() {
+  document.getElementById('root').innerHTML = '<div class="loading">Actualizando datos...</div>';
+  try {
+    const r = await fetch('/campaigns?limit=100');
+    if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+    const data = await r.json();
+    const list = Array.isArray(data) ? data : (data.data || data.results || data.campaigns || data.items || []);
+    if (!list.length) throw new Error('No se encontraron campañas.');
+    renderAll(list);
+    document.getElementById('last-updated').textContent = 'Actualizado: ' + new Date().toLocaleString('es-AR');
+  } catch(e) {
+    document.getElementById('root').innerHTML = `<div class="error"><strong>Error:</strong> ${e.message}<br><br><button class="refresh-btn" onclick="loadData()">Reintentar</button></div>`;
+  }
+}
+
+function renderAll(campaigns) {
+  const sent = campaigns.filter(c => c.status === 'sent' || sn(c) > 0);
+  const N = sent.length;
+
+  const tSent = sent.reduce((a, c) => a + sn(c), 0);
+  const tSales = sent.reduce((a, c) => a + rv(c), 0);
+  const aOpen = sent.reduce((a, c) => a + oR(c), 0) / N;
+  const aClick = sent.reduce((a, c) => a + cR(c), 0) / N;
+  const aBounce = sent.reduce((a, c) => a + bR(c), 0) / N;
+
+  const luna = sent.filter(c => (c.name || '').toLowerCase().includes('luna'));
+  const brand = sent.filter(c => (c.name || '').toLowerCase().includes('brand'));
+  const lOpen = luna.length ? luna.reduce((a, c) => a + oR(c), 0) / luna.length : 0;
+  const bOpen = brand.length ? brand.reduce((a, c) => a + oR(c), 0) / brand.length : 0;
+  const lRev = luna.reduce((a, c) => a + rv(c), 0);
+  const bRev = brand.reduce((a, c) => a + rv(c), 0);
+  const lClick = luna.length ? luna.reduce((a, c) => a + cR(c), 0) / luna.length : 0;
+  const bClick = brand.length ? brand.reduce((a, c) => a + cR(c), 0) / brand.length : 0;
+
+  const byDate = [...sent].sort((a, b) => new Date(b.launchDate || 0) - new Date(a.launchDate || 0));
+  const top5 = [...sent].sort((a, b) => rv(b) - rv(a)).slice(0, 5);
+  const r12 = byDate.slice(0, 12).reverse();
+
+  const insights = [];
+  if (aClick < 1) insights.push({ icon: '🎯', title: 'Click rate bajo', text: `CTR promedio de ${pct(aClick)}. Probar CTAs más específicos y botones más visibles en los emails.` });
+  if (aBounce > 1.5) insights.push({ icon: '⚠️', title: 'Rebotes elevados', text: `${pct(aBounce)} de rebote promedio. Limpiar la lista regularmente para proteger la reputación del dominio.` });
+  if (lOpen > bOpen + 2) insights.push({ icon: '⭐', title: 'Luna supera a Branding', text: `Luna genera ${(lOpen - bOpen).toFixed(1)}pp más de apertura. La voz narrativa conecta mejor con la audiencia.` });
+  if (bOpen > lOpen + 2) insights.push({ icon: '📈', title: 'Branding supera a Luna', text: `Branding abre ${(bOpen - lOpen).toFixed(1)}pp más. Analizar qué asuntos funcionan mejor.` });
+  insights.push({ icon: '📅', title: 'Frecuencia de envío', text: `${N} campañas enviadas en total. Mantener consistencia semanal construye hábito de lectura en la audiencia.` });
+  if (tSales > 0) insights.push({ icon: '💰', title: 'ROI del canal', text: `El email generó ${money(tSales)} ARS en ventas asistidas. El canal email es el de mayor retorno.` });
+
+  document.getElementById('root').innerHTML = `
+    <div class="section-title">KPIs generales</div>
+    <div class="grid-5">
+      <div class="card"><div class="metric-label">Envíos totales</div><div class="metric-value">${fmt(tSent)}</div><div class="metric-sub">${N} campañas</div></div>
+      <div class="card"><div class="metric-label">Open rate promedio</div><div class="metric-value ${gc(aOpen, 50, 35)}">${pct(aOpen)}</div><div class="metric-sub">>50% excelente</div></div>
+      <div class="card"><div class="metric-label">Click rate promedio</div><div class="metric-value ${gc(aClick, 1, 0.5)}">${pct(aClick)}</div><div class="metric-sub">>1% bueno</div></div>
+      <div class="card"><div class="metric-label">Rebote promedio</div><div class="metric-value ${aBounce > 2 ? 'red' : 'green'}">${pct(aBounce)}</div><div class="metric-sub"><2% óptimo</div></div>
+      <div class="card"><div class="metric-label">Ventas asistidas</div><div class="metric-value blue" style="font-size:18px">${money(tSales)}</div><div class="metric-sub">ARS</div></div>
+    </div>
+
+    <div class="section-title">Luna vs Branding</div>
+    <div class="grid-2">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <span class="badge badge-luna">LUNA</span>
+          <span style="font-size:11px;color:#aaa">${luna.length} campañas</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:8px">
+          <div><div class="metric-label">Open rate</div><div style="font-size:20px;font-weight:600" class="${gc(lOpen, 50, 35)}">${pct(lOpen)}</div></div>
+          <div><div class="metric-label">Click rate</div><div style="font-size:20px;font-weight:600" class="${gc(lClick, 1, 0.5)}">${pct(lClick)}</div></div>
+          <div><div class="metric-label">Ventas</div><div style="font-size:14px;font-weight:600;color:#2563eb">${money(lRev)}</div></div>
+        </div>
+        <div class="bar-wrap"><div class="bar-fill" style="width:${Math.min(lOpen, 100)}%;background:${lOpen >= 50 ? '#16a34a' : lOpen >= 35 ? '#d97706' : '#dc2626'}"></div></div>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <span class="badge badge-brand">BRANDING</span>
+          <span style="font-size:11px;color:#aaa">${brand.length} campañas</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:8px">
+          <div><div class="metric-label">Open rate</div><div style="font-size:20px;font-weight:600" class="${gc(bOpen, 50, 35)}">${pct(bOpen)}</div></div>
+          <div><div class="metric-label">Click rate</div><div style="font-size:20px;font-weight:600" class="${gc(bClick, 1, 0.5)}">${pct(bClick)}</div></div>
+          <div><div class="metric-label">Ventas</div><div style="font-size:14px;font-weight:600;color:#2563eb">${money(bRev)}</div></div>
+        </div>
+        <div class="bar-wrap"><div class="bar-fill" style="width:${Math.min(bOpen, 100)}%;background:${bOpen >= 50 ? '#16a34a' : bOpen >= 35 ? '#d97706' : '#dc2626'}"></div></div>
+      </div>
+    </div>
+
+    <div class="section-title">Evolución open rate — últimas 12 campañas</div>
+    <div class="card" style="padding:20px">
+      <canvas id="trendChart" role="img" aria-label="Evolución open rate últimas 12 campañas" style="max-height:220px"></canvas>
+    </div>
+
+    <div class="section-title">Top 5 campañas por ventas</div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table>
+        <thead><tr><th>Campaña</th><th>Envíos</th><th>Apertura</th><th>Click</th><th>Rebote</th><th>Ventas</th></tr></thead>
+        <tbody>${top5.map(c => {
+          const isL = (c.name || '').toLowerCase().includes('luna');
+          const isB = (c.name || '').toLowerCase().includes('brand');
+          const badge = isL ? '<span class="badge badge-luna">LUNA</span>' : isB ? '<span class="badge badge-brand">BRAND</span>' : '';
+          const name = (c.name || '').replace(/^(LUNA|Branding)\s*\|\s*/i, '').slice(0, 28);
+          return `<tr><td><div style="font-weight:500">${name}</div><div style="margin-top:3px">${badge}</div></td><td>${fmt(sn(c))}</td><td class="${gc(oR(c), 50, 35)}" style="font-weight:600">${pct(oR(c))}</td><td>${pct(cR(c))}</td><td class="${bR(c) > 2 ? 'red' : ''}">${pct(bR(c))}</td><td style="font-weight:600;color:#2563eb">${money(rv(c))}</td></tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Todas las campañas recientes</div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table>
+        <thead><tr><th>Campaña</th><th>Fecha</th><th>Envíos</th><th>Apertura</th><th>Click</th><th>Rebote</th><th>Ventas</th></tr></thead>
+        <tbody>${byDate.slice(0, 20).map(c => {
+          const isL = (c.name || '').toLowerCase().includes('luna');
+          const isB = (c.name || '').toLowerCase().includes('brand');
+          const badge = isL ? '<span class="badge badge-luna">L</span> ' : isB ? '<span class="badge badge-brand">B</span> ' : '';
+          const name = (c.name || '').replace(/^(LUNA|Branding)\s*\|\s*/i, '').slice(0, 22);
+          const fecha = c.launchDate ? new Date(c.launchDate).toLocaleDateString('es-AR', { day: '2-digit', month: 'short' }) : '—';
+          return `<tr><td>${badge}<span style="font-weight:500">${name}</span></td><td style="color:#888">${fecha}</td><td>${fmt(sn(c))}</td><td class="${gc(oR(c), 50, 35)}" style="font-weight:600">${pct(oR(c))}</td><td>${pct(cR(c))}</td><td class="${bR(c) > 2 ? 'red' : ''}">${pct(bR(c))}</td><td style="font-weight:600;color:#2563eb">${money(rv(c))}</td></tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Oportunidades de mejora</div>
+    <div class="grid-3" style="margin-bottom:40px">
+      ${insights.map(i => `<div class="insight"><div class="insight-icon">${i.icon}</div><div class="insight-title">${i.title}</div><div class="insight-text">${i.text}</div></div>`).join('')}
+    </div>
+  `;
+
+  if (trendChart) { trendChart.destroy(); trendChart = null; }
+  trendChart = new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+      labels: r12.map(c => (c.name || '').split('|').pop().trim().slice(0, 14)),
+      datasets: [{
+        label: 'Open rate %',
+        data: r12.map(c => parseFloat(oR(c).toFixed(1))),
+        borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.07)',
+        borderWidth: 2, pointBackgroundColor: '#16a34a', pointRadius: 4, fill: true, tension: 0.35
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(1) + '%' } } },
+      scales: {
+        y: { ticks: { callback: v => v + '%', font: { size: 11 } }, grid: { color: 'rgba(0,0,0,0.05)' } },
+        x: { ticks: { font: { size: 10 }, maxRotation: 40, autoSkip: false }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+loadData();
+</script>
+</body>
+</html>
