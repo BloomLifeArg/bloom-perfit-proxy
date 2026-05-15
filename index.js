@@ -1,9 +1,16 @@
 const express = require('express');
-const cors = require('cors');
 const fetch = require('node-fetch');
 
 const app = express();
-app.use(cors());
+
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', '*');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
 app.use(express.json());
 
 const API_KEY = process.env.PERFIT_API_KEY || 'bloomlife-MFsgND2hDCIrk4LKz7icZs2bRMdUm9Sx';
